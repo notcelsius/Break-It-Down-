@@ -1,6 +1,6 @@
 # Break It Down
 
-A to-do app that lets a logged-in user create tasks and generate exactly 3 actionable steps per task via an AI service.
+A to-do app that lets a user create tasks and generate exactly 3 actionable steps per task via an AI service.
 
 ## Repo Layout
 
