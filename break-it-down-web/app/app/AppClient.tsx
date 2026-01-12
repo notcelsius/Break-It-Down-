@@ -17,12 +17,21 @@ type Task = {
   created_at: string;
 };
 
+type Step = {
+  id: string;
+  task_id: string;
+  step_index: number;
+  text: string;
+  done: boolean;
+};
+
 export default function AppClient({ email }: AppClientProps) {
   const router = useRouter();
   const [status, setStatus] = useState<"idle" | "loading">("idle");
   const supabase = useMemo(() => createClient(), []);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
+  const [stepsByTask, setStepsByTask] = useState<Record<string, Step[]>>({});
   const [taskError, setTaskError] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -50,10 +59,34 @@ export default function AppClient({ email }: AppClientProps) {
       } else {
         setTasks((data ?? []) as Task[]);
       }
+    };
+
+    const loadSteps = async () => {
+      const { data, error } = await supabase
+        .from("steps")
+        .select("id, task_id, step_index, text, done")
+        .order("step_index", { ascending: true });
+
+      if (error) {
+        setTaskError(error.message);
+        return;
+      }
+
+      const grouped: Record<string, Step[]> = {};
+      (data ?? []).forEach((step) => {
+        grouped[step.task_id] ??= [];
+        grouped[step.task_id].push(step as Step);
+      });
+      setStepsByTask(grouped);
+    };
+
+    const loadData = async () => {
+      await loadTasks();
+      await loadSteps();
       setLoadingTasks(false);
     };
 
-    loadTasks();
+    loadData();
   }, [supabase]);
 
   const setBusy = (taskId: string, isBusy: boolean) => {
@@ -107,6 +140,11 @@ export default function AppClient({ email }: AppClientProps) {
     }
 
     setTasks((prev) => prev.filter((task) => task.id !== taskId));
+    setStepsByTask((prev) => {
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
     setBusy(taskId, false);
   };
 
@@ -161,6 +199,61 @@ export default function AppClient({ email }: AppClientProps) {
     }
     await updateTask(taskId, { title: editingTitle.trim() });
     cancelEditing();
+  };
+
+  const handleGenerateSteps = async (taskId: string) => {
+    setBusy(taskId, true);
+    setTaskError(null);
+
+    const response = await fetch(`/api/tasks/${taskId}/generate-steps`, {
+      method: "POST",
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      setTaskError(payload.error ?? "Failed to generate steps.");
+      setBusy(taskId, false);
+      return;
+    }
+
+    const payload = (await response.json()) as { steps: Step[] };
+    const orderedSteps = [...payload.steps].sort(
+      (a, b) => a.step_index - b.step_index
+    );
+    setStepsByTask((prev) => ({
+      ...prev,
+      [taskId]: orderedSteps,
+    }));
+    setBusy(taskId, false);
+  };
+
+  const handleToggleStep = async (step: Step) => {
+    setBusy(step.task_id, true);
+    setTaskError(null);
+
+    const { data, error } = await supabase
+      .from("steps")
+      .update({ done: !step.done })
+      .eq("id", step.id)
+      .select("id, task_id, step_index, text, done")
+      .single();
+
+    if (error) {
+      setTaskError(error.message);
+      setBusy(step.task_id, false);
+      return;
+    }
+
+    if (data) {
+      setStepsByTask((prev) => ({
+        ...prev,
+        [step.task_id]: (prev[step.task_id] ?? []).map((item) =>
+          item.id === step.id ? (data as Step) : item
+        ),
+      }));
+    }
+
+    setBusy(step.task_id, false);
   };
 
   return (
@@ -237,6 +330,8 @@ export default function AppClient({ email }: AppClientProps) {
               {tasks.map((task) => {
                 const isBusy = busyIds.has(task.id);
                 const isEditing = editingId === task.id;
+                const taskSteps = stepsByTask[task.id] ?? [];
+                const hasSteps = taskSteps.length > 0;
                 return (
                   <div
                     key={task.id}
@@ -293,6 +388,15 @@ export default function AppClient({ email }: AppClientProps) {
                           </>
                         ) : (
                           <>
+                            {!hasSteps ? (
+                              <button
+                                onClick={() => handleGenerateSteps(task.id)}
+                                disabled={isBusy}
+                                className="rounded-full border border-sky-500/40 px-3 py-1 text-xs font-semibold text-sky-200 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:text-slate-500"
+                              >
+                                {isBusy ? "Working..." : "Break it down"}
+                              </button>
+                            ) : null}
                             <button
                               onClick={() => startEditing(task)}
                               disabled={isBusy || task.status === "archived"}
@@ -327,6 +431,33 @@ export default function AppClient({ email }: AppClientProps) {
                         )}
                       </div>
                     </div>
+                    {hasSteps ? (
+                      <div className="mt-4 space-y-2 border-t border-slate-800 pt-4">
+                        {taskSteps.map((step) => (
+                          <label
+                            key={step.id}
+                            className="flex items-start gap-3 text-sm text-slate-200"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={step.done}
+                              onChange={() => handleToggleStep(step)}
+                              disabled={isBusy}
+                              className="mt-1 h-4 w-4 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                            />
+                            <span
+                              className={
+                                step.done
+                                  ? "text-slate-500 line-through"
+                                  : "text-slate-200"
+                              }
+                            >
+                              {step.text}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}
