@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 type RouteParams = {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 };
 
 type GenerateStepsResponse = {
@@ -30,7 +30,7 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const taskId = params.id;
+  const { id: taskId } = await params;
   const { data: task, error: taskError } = await supabase
     .from("tasks")
     .select("id, title, user_id")

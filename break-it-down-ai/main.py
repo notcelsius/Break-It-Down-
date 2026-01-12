@@ -9,6 +9,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
+
+load_dotenv()
+load_dotenv(".env.local")
 
 app = FastAPI(title="Break It Down AI", version="0.1.0")
 
@@ -75,10 +79,10 @@ def _generate_with_openai(task: str) -> List[str]:
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     temperature = float(os.getenv("OPENAI_TEMPERATURE", "0.2"))
 
-    response = client.responses.create(
+    response = client.chat.completions.create(
         model=model,
         temperature=temperature,
-        input=[
+        messages=[
             {
                 "role": "system",
                 "content": (
@@ -94,7 +98,7 @@ def _generate_with_openai(task: str) -> List[str]:
         ],
     )
 
-    text = getattr(response, "output_text", "") or ""
+    text = response.choices[0].message.content or ""
     steps = _parse_steps(text)
     if len(steps) < 3:
         return _fallback_steps(task)
