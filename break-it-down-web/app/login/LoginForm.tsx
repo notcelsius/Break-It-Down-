@@ -10,7 +10,6 @@ import { createClient } from "@/lib/supabase/browser";
 export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectedFrom = searchParams.get("redirectedFrom");
 
   const [status, setStatus] = useState<"idle" | "loading">("idle");
   const [message, setMessage] = useState<string | null>(null);
@@ -87,11 +86,6 @@ export default function LoginForm() {
           <CardDescription>
             Use your email and password to access your tasks.
           </CardDescription>
-          {redirectedFrom ? (
-            <p className="text-xs text-amber-600">
-              You were redirected from {redirectedFrom}.
-            </p>
-          ) : null}
         </CardHeader>
 
         <CardContent>
