@@ -193,26 +193,39 @@ export default function AppClient({
     setTaskBusy(taskId, true);
     setTaskError(null);
 
-    const response = await fetch(`/api/tasks/${taskId}/generate-steps`, {
-      method: "POST",
-    });
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 10000);
 
-    if (!response.ok) {
-      const payload = (await response.json()) as { error?: string };
-      setTaskError(payload.error ?? "Failed to generate steps.");
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/generate-steps`, {
+        method: "POST",
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        setTaskError(payload.error ?? "Failed to generate steps.");
+        return;
+      }
+
+      const payload = (await response.json()) as { steps: Step[] };
+      const orderedSteps = [...payload.steps].sort(
+        (a, b) => a.step_index - b.step_index
+      );
+      setStepsByTask((prev) => ({
+        ...prev,
+        [taskId]: orderedSteps,
+      }));
+    } catch (error) {
+      const message =
+        error instanceof DOMException && error.name === "AbortError"
+          ? "The AI service is taking too long. Please try again."
+          : "Unable to reach the AI service.";
+      setTaskError(message);
+    } finally {
+      window.clearTimeout(timeoutId);
       setTaskBusy(taskId, false);
-      return;
     }
-
-    const payload = (await response.json()) as { steps: Step[] };
-    const orderedSteps = [...payload.steps].sort(
-      (a, b) => a.step_index - b.step_index
-    );
-    setStepsByTask((prev) => ({
-      ...prev,
-      [taskId]: orderedSteps,
-    }));
-    setTaskBusy(taskId, false);
   };
 
   const handleToggleStep = async (step: Step) => {

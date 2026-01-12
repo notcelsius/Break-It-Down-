@@ -65,22 +65,46 @@ export async function POST(
     process.env.AI_SERVICE_URL?.replace(/\/$/, "") ||
     "http://localhost:8000";
 
-  const aiResponse = await fetch(`${aiServiceUrl}/generate-steps`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ task: task.title }),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-  if (!aiResponse.ok) {
+  let aiPayload: { steps?: string[] } | null = null;
+  try {
+    const aiResponse = await fetch(`${aiServiceUrl}/generate-steps`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ task: task.title }),
+      signal: controller.signal,
+    });
+
+    if (!aiResponse.ok) {
+      const errorBody = await aiResponse.text();
+      return NextResponse.json(
+        { error: `AI service error: ${errorBody || aiResponse.status}` },
+        { status: 502 }
+      );
+    }
+
+    aiPayload = (await aiResponse.json()) as { steps?: string[] };
+  } catch (error) {
+    const message =
+      error instanceof DOMException && error.name === "AbortError"
+        ? "AI service timed out."
+        : "Failed to reach AI service.";
+    console.error("[generate-steps] AI fetch failed", error);
+    return NextResponse.json({ error: message }, { status: 502 });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!aiPayload) {
     return NextResponse.json(
-      { error: "AI service error." },
+      { error: "AI service returned no data." },
       { status: 502 }
     );
   }
-
-  const aiPayload = (await aiResponse.json()) as { steps?: string[] };
   if (!Array.isArray(aiPayload.steps) || aiPayload.steps.length !== 3) {
     return NextResponse.json(
       { error: "AI service returned invalid steps." },
